@@ -45,9 +45,15 @@
         <button class="tool" data-tool="fill" title="塗りつぶし（F）">塗りつぶし</button>
         <button class="tool" data-tool="line" title="直線（L）">直線</button>
         <button class="tool" data-tool="rect" title="矩形（R）">矩形</button>
+        <button class="tool" data-tool="select" title="範囲選択（S）">選択</button>
         <button class="tool" data-tool="picker" title="スポイト（I）">スポイト</button>
       </div>
       <div class="group">
+        <button id="btnCut" class="btn small" title="切り取り（Ctrl+X）" disabled>✂ 切り取り</button>
+        <button id="btnCopy" class="btn small" title="コピー（Ctrl+C）" disabled>コピー</button>
+        <button id="btnPaste" class="btn small" title="貼り付け（Ctrl+V）" disabled>貼り付け</button>
+      </div>
+    <div class="group">
         <button id="btnUndo" class="btn small" title="元に戻す（Ctrl+Z）">↶ 元に戻す</button>
         <button id="btnRedo" class="btn small" title="やり直し（Ctrl+Y）">↷ やり直し</button>
         <button id="btnClear" class="btn small">全消去</button>
@@ -80,7 +86,7 @@
     </div>
 
     <div class="status" id="status">&nbsp;</div>
-    <p class="hint small-hint">左クリック：描画／右クリック：消去／数字キー 1〜9：タイル切替／B・E・F・L・R・I：ツール切替／Ctrl+Z・Ctrl+Y：元に戻す・やり直し</p>
+    <p class="hint small-hint">左クリック：描画／右クリック：消去／数字キー 1〜9：タイル切替／B・E・F・L・R・S・I：ツール切替／Ctrl+Z・Ctrl+Y：元に戻す・やり直し／選択ツールでドラッグ後 Ctrl+C・Ctrl+X・Ctrl+V：コピー・切り取り・貼り付け（Esc：解除）</p>
   </section>
 
   <!-- 右：テキスト -->

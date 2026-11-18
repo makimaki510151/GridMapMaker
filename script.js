@@ -26,9 +26,14 @@
     cell: 32,
     showGrid: true,
     outline: false,
+    sel: null,           // 選択範囲 {x0, y0, x1, y1}（正規化済み）
+    clip: null,          // コピー／切り取りした範囲（二次元配列）
+    paste: false,        // 貼り付け先選択モード
+    hover: null,         // マウス位置のマス
   };
   let nextId = 1;
   let stroke = null;     // 描画中の情報
+  let selDrag = null;    // 範囲選択のドラッグ中情報
   let undoStack = [];
   let redoStack = [];
   let lastTextPush = 0;
@@ -143,7 +148,10 @@
   }
 
   function drawCell(c, x, y, s, lmap, showGrid) {
-    const ch = state.grid[y][x];
+    drawTile(c, x, y, s, state.grid[y][x], lmap, showGrid);
+  }
+
+  function drawTile(c, x, y, s, ch, lmap, showGrid) {
     const e = lmap.get(ch);
     const isBlank = ch === BLANK;
     const bg = isBlank ? '#ffffff' : e ? e.color : '#ffe3e3';
@@ -168,15 +176,60 @@
     c.textBaseline = 'middle';
   }
 
+  function drawSelectionOverlay(c, s) {
+    const { x0, y0, x1, y1 } = state.sel;
+    const w = (x1 - x0 + 1) * s, h = (y1 - y0 + 1) * s;
+    c.save();
+    c.fillStyle = 'rgba(59,109,240,0.15)';
+    c.fillRect(x0 * s, y0 * s, w, h);
+    c.strokeStyle = '#3b6df0';
+    c.lineWidth = 2;
+    c.setLineDash([5, 3]);
+    c.strokeRect(x0 * s + 1, y0 * s + 1, w - 2, h - 2);
+    c.restore();
+  }
+
+  function drawPastePreview(c, s, lmap) {
+    if (!state.paste || !state.clip || !state.hover) return;
+    const clip = state.clip;
+    const ox = state.hover.x, oy = state.hover.y;
+    const cw = clip[0].length, ch = clip.length;
+    c.save();
+    c.globalAlpha = 0.6;
+    for (let dy = 0; dy < ch; dy++) {
+      for (let dx = 0; dx < cw; dx++) {
+        const x = ox + dx, y = oy + dy;
+        if (x >= state.w || y >= state.h) continue;
+        drawTile(c, x, y, s, clip[dy][dx], lmap, state.showGrid);
+      }
+    }
+    c.globalAlpha = 1;
+    c.strokeStyle = '#3b6df0';
+    c.lineWidth = 2;
+    c.setLineDash([]);
+    c.strokeRect(ox * s + 1, oy * s + 1, cw * s - 2, ch * s - 2);
+    c.restore();
+  }
+
+  function updateEditButtons() {
+    $('#btnCut').disabled = !state.sel;
+    $('#btnCopy').disabled = !state.sel;
+    $('#btnPaste').disabled = !state.clip;
+  }
+
   function render() {
     setCanvasSize();
     const s = state.cell;
     const dpr = window.devicePixelRatio || 1;
     prepareCtx(ctx, s, dpr);
+    if (state.sel && (state.sel.x1 >= state.w || state.sel.y1 >= state.h)) state.sel = null;
     const lmap = legendMap();
     for (let y = 0; y < state.h; y++) {
       for (let x = 0; x < state.w; x++) drawCell(ctx, x, y, s, lmap, state.showGrid);
     }
+    if (state.sel) drawSelectionOverlay(ctx, s);
+    drawPastePreview(ctx, s, lmap);
+    updateEditButtons();
   }
 
   function renderOneCell(x, y) {
@@ -292,6 +345,84 @@
   }
 
   // ============================================================
+  // 範囲選択・コピー・切り取り・貼り付け
+  // ============================================================
+  function setSelection(a, b) {
+    state.sel = {
+      x0: Math.min(a.x, b.x), y0: Math.min(a.y, b.y),
+      x1: Math.max(a.x, b.x), y1: Math.max(a.y, b.y),
+    };
+    render();
+  }
+
+  function clearSelection() {
+    if (!state.sel) return;
+    state.sel = null;
+    render();
+  }
+
+  function copySelection() {
+    if (!state.sel) {
+      toast('先に範囲を選択してください（選択ツールでドラッグ）');
+      return false;
+    }
+    const { x0, y0, x1, y1 } = state.sel;
+    state.clip = state.grid.slice(y0, y1 + 1).map((r) => r.slice(x0, x1 + 1));
+    render();
+    copyText(state.clip.map((r) => r.join('')).join('\n'), '選択範囲');
+    return true;
+  }
+
+  function cutSelection() {
+    if (!copySelection()) return;
+    const { x0, y0, x1, y1 } = state.sel;
+    pushUndo(snapshot());
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) state.grid[y][x] = BLANK;
+    }
+    render();
+    syncMapText();
+    updateCounts();
+    scheduleSave();
+  }
+
+  function startPaste() {
+    if (!state.clip) {
+      toast('コピーまたは切り取りした範囲がありません');
+      return;
+    }
+    if (state.tool !== 'select') setTool('select');
+    state.sel = null;
+    state.paste = true;
+    render();
+    toast('貼り付け先をクリック（Esc／右クリックでキャンセル）');
+  }
+
+  function cancelPaste() {
+    if (!state.paste) return;
+    state.paste = false;
+    render();
+  }
+
+  function commitPaste(c) {
+    const clip = state.clip;
+    const before = snapshot();
+    for (let dy = 0; dy < clip.length; dy++) {
+      for (let dx = 0; dx < clip[0].length; dx++) {
+        const x = c.x + dx, y = c.y + dy;
+        if (x < 0 || y < 0 || x >= state.w || y >= state.h) continue;
+        state.grid[y][x] = clip[dy][dx];
+      }
+    }
+    state.paste = false;
+    if (before.join('\n') !== gridToText()) pushUndo(before);
+    render();
+    syncMapText();
+    updateCounts();
+    scheduleSave();
+  }
+
+  // ============================================================
   // ポインタ操作
   // ============================================================
   function cellFromEvent(e, clamp) {
@@ -326,6 +457,21 @@
     if (!c) return;
     e.preventDefault();
 
+    // 貼り付け先の確定（右クリックでキャンセル）
+    if (state.paste) {
+      if (e.button === 0) commitPaste(c);
+      else cancelPaste();
+      return;
+    }
+
+    // 範囲選択（ドラッグで範囲を指定）
+    if (state.tool === 'select' && e.button === 0) {
+      canvas.setPointerCapture(e.pointerId);
+      selDrag = { start: c };
+      setSelection(c, c);
+      return;
+    }
+
     let tool = state.tool;
     let ch = state.current;
     if (e.button === 2) {
@@ -358,6 +504,10 @@
   canvas.addEventListener('pointermove', (e) => {
     const hover = cellFromEvent(e, false);
     updateHover(hover);
+    if (selDrag) {
+      setSelection(selDrag.start, cellFromEvent(e, true));
+      return;
+    }
     if (!stroke) return;
     const c = cellFromEvent(e, true);
     if (c.x === stroke.last.x && c.y === stroke.last.y) return;
@@ -370,6 +520,10 @@
   });
 
   function endStroke() {
+    if (selDrag) {
+      selDrag = null;
+      return;
+    }
     if (!stroke) return;
     const before = stroke.before;
     stroke = null;
@@ -383,6 +537,9 @@
   canvas.addEventListener('pointerleave', () => updateHover(null));
 
   function updateHover(c) {
+    const prev = state.hover;
+    state.hover = c;
+    if (state.paste && (prev?.x !== c?.x || prev?.y !== c?.y)) render(); // 貼り付けプレビュー更新
     if (!c) {
       cursorEl.hidden = true;
       statusEl.textContent = `${state.w} × ${state.h} マス`;
@@ -401,19 +558,27 @@
   // ツール・タイル選択
   // ============================================================
   function setTool(t) {
+    if (t !== 'select') {
+      state.paste = false;
+      state.sel = null;
+    }
     state.tool = t;
     document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === t));
     renderPalette();
     updateLegendActive();
+    render();
     scheduleSave();
   }
 
   function selectTile(ch) {
     state.current = ch;
-    if (state.tool === 'eraser' || state.tool === 'picker') state.tool = 'pen';
+    if (['eraser', 'picker', 'select'].includes(state.tool)) state.tool = 'pen';
+    state.paste = false;
+    state.sel = null;
     document.querySelectorAll('.tool').forEach((b) => b.classList.toggle('active', b.dataset.tool === state.tool));
     renderPalette();
     updateLegendActive();
+    render();
     scheduleSave();
   }
 
@@ -978,6 +1143,9 @@
   // ============================================================
   $('#btnUndo').addEventListener('click', undo);
   $('#btnRedo').addEventListener('click', redo);
+  $('#btnCopy').addEventListener('click', copySelection);
+  $('#btnCut').addEventListener('click', cutSelection);
+  $('#btnPaste').addEventListener('click', startPaste);
   $('#btnClear').addEventListener('click', () => {
     pushUndo(snapshot());
     state.grid = makeGrid(state.w, state.h);
@@ -1018,8 +1186,19 @@
     const k = e.key.toLowerCase();
     if (mod && k === 'z') { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod && k === 'y') { e.preventDefault(); redo(); return; }
+    if (mod && (k === 'c' || k === 'x') && state.sel) {
+      e.preventDefault();
+      k === 'c' ? copySelection() : cutSelection();
+      return;
+    }
+    if (mod && k === 'v') { e.preventDefault(); startPaste(); return; }
+    if (e.key === 'Escape') {
+      cancelPaste();
+      clearSelection();
+      return;
+    }
     if (mod || e.altKey) return;
-    const tools = { b: 'pen', e: 'eraser', f: 'fill', l: 'line', r: 'rect', i: 'picker' };
+    const tools = { b: 'pen', e: 'eraser', f: 'fill', l: 'line', r: 'rect', s: 'select', i: 'picker' };
     if (tools[k]) { setTool(tools[k]); return; }
     if (/^[1-9]$/.test(e.key)) {
       const entry = state.legend[Number(e.key) - 1];
@@ -1042,7 +1221,7 @@
         if (data.cell >= 16 && data.cell <= 56) state.cell = data.cell;
         state.showGrid = data.showGrid !== false;
         state.outline = !!data.outline;
-        if (['pen', 'eraser', 'fill', 'line', 'rect', 'picker'].includes(data.tool)) state.tool = data.tool;
+        if (['pen', 'eraser', 'fill', 'line', 'rect', 'select', 'picker'].includes(data.tool)) state.tool = data.tool;
         restored = true;
       }
     } catch { restored = false; }
