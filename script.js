@@ -1068,7 +1068,12 @@
       { char: 'イ', name: 'イベント', color: '#ffa94d' },
       { char: '削', name: '削り', color: '#a9afb7' },
       { char: 'ス', name: 'スロット', color: '#c78bff' },
-      { char: '株', name: '株', color: '#4fc3c7' }
+      { char: '株', name: '株', color: '#4fc3c7' },
+      { char: 'ラ', name: 'ラッキー', color: '#ffd43b' },
+      { char: '回', name: 'サイコロもう一回', color: '#74c0fc' },
+      { char: '当', name: 'サイコロ当てゲーム', color: '#b197fc' },
+      { char: '転', name: '転送', color: '#63e6be' },
+      { char: 'ワ', name: 'ワイルドカード', color: '#ff8787' }
     );
     return legend;
   }
