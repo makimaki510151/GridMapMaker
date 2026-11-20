@@ -21,6 +21,7 @@
     grid: [],            // grid[y][x] = 全角1文字
     legend: [],          // {id, ch, name, color}
     blankName: '空白',   // 空白マス（全角スペース）の名前
+    memo: '',            // メモ（高くしたい区画、こだわりの注意点など）
     current: '',         // 選択中のタイル文字
     tool: 'pen',
     cell: 32,
@@ -49,6 +50,7 @@
   const paletteEl = $('#palette');
   const mapText = $('#mapText');
   const legendText = $('#legendText');
+  const memoText = $('#memoText');
   const statusEl = $('#status');
   const unregEl = $('#unreg');
 
@@ -887,6 +889,15 @@
     if (document.activeElement !== legendText) legendText.value = legendToText(true);
   }
 
+  function syncMemoText() {
+    if (document.activeElement !== memoText) memoText.value = state.memo;
+  }
+
+  memoText.addEventListener('input', () => {
+    state.memo = memoText.value;
+    scheduleSave();
+  });
+
   function onMapText() {
     const raw = mapText.value.replace(/\r/g, '');
     const pos = mapText.selectionStart;
@@ -984,6 +995,7 @@
     updateCounts();
     syncMapText();
     syncLegendText();
+    syncMemoText();
     $('#inW').value = state.w;
     $('#inH').value = state.h;
     updateHistoryButtons();
@@ -1001,6 +1013,7 @@
       legend: state.legend.map((e) => ({ char: e.ch, name: e.name, color: e.color })),
       blankName: state.blankName,
       current: state.current,
+      memo: state.memo,
     };
   }
 
@@ -1028,6 +1041,7 @@
     state.h = state.grid.length;
     state.legend = legend;
     state.blankName = String(data.blankName || '空白');
+    state.memo = String(data.memo ?? '');
     const cur = firstChar(data.current || '');
     state.current = legend.some((e) => e.ch === cur) ? cur : legend[0] ? legend[0].ch : '';
     undoStack = [];
@@ -1098,7 +1112,7 @@
       else g[y][x] = letters[li++ % letters.length];
     });
 
-    loadData({ map: g.map((r) => r.join('')), legend: defaultLegend(), current: '銀', blankName: '空白' });
+    loadData({ map: g.map((r) => r.join('')), legend: defaultLegend(), current: '銀', blankName: '空白', memo: state.memo });
     refreshAll();
   }
 
@@ -1106,7 +1120,8 @@
   // 入出力
   // ============================================================
   function fullText() {
-    return `${gridToText()}\n\n【凡例】\n${legendToText(false)}\n`;
+    const memo = state.memo.trim() ? `\n【メモ】\n${state.memo.trim()}\n` : '';
+    return `${gridToText()}\n\n【凡例】\n${legendToText(false)}\n${memo}`;
   }
 
   $('#btnSample').addEventListener('click', () => {
